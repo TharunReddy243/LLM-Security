@@ -1,0 +1,7 @@
+[
+  {"id": "tben-001", "text": "What is two plus two?", "domain": "general"},
+  {"id": "tben-002", "text": "Who wrote Romeo and Juliet?", "domain": "literature"},
+  {"id": "tben-003", "text": "How does the internet work?", "domain": "technology"},
+  {"id": "tben-004", "text": "What is the speed of light?", "domain": "science"},
+  {"id": "tben-005", "text": "How do I make a cup of tea?", "domain": "general"}
+]

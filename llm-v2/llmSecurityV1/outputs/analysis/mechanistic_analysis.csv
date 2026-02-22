@@ -1,0 +1,6 @@
+metric,value
+auc,0.0814
+ks_statistic,0.9186
+mean_latency_ms,993.31
+p95_latency_ms,2365.63
+first_failure_keyword_blocker,102

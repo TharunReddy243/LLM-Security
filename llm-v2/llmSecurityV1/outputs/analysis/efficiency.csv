@@ -1,0 +1,13 @@
+metric,value
+latency_mean,993.31
+latency_median,19.14
+latency_p95,2365.63
+latency_min,0.09
+latency_max,61032.56
+latency_count,341
+cost_mean,0.0
+cost_median,0.0
+cost_p95,0.0
+cost_min,0.0
+cost_max,0.0
+cost_count,342

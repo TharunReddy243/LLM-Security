@@ -1,0 +1,7 @@
+layer,mean_ms,median_ms,p95_ms,count
+end_to_end,723.34,19.56,2314.5,120
+normalization,0.02,0.02,0.02,40
+keyword_blocker,0.09,0.09,0.12,40
+intent_classifier,170.41,7.38,9.06,23
+capability_reducer,0.08,0.03,0.04,23
+resolver,0.0,0.0,0.0,23
