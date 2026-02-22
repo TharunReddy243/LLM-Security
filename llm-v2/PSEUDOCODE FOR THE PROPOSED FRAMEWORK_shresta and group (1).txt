@@ -1,0 +1,240 @@
+PSEUDOCODE FOR THE PROPOSED FRAMEWORK
+Notation
+M: target LLM (black-box API)
+E: defense ensemble pipeline (ordered modules)
+J: policy violation judge (two-stage)
+A: set of attackers {RL, GA, STACK}
+Pm: malicious prompt dataset (seed prompts)
+Pb: benign prompt dataset
+B: total query budget per attack attempt
+Logs: structured storage for all events
+
+1. MAIN EXPERIMENT DRIVER
+Procedure RUN_STUDY(MODELS, ENSEMBLES, ATTACKERS, Pm, Pb, B)
+1. Initialize global Logs
+2. For each model m in MODELS
+3. For each ensemble e in ENSEMBLES
+4. STATIC_RESULTS = RUN_STATIC_BASELINE(m, e, Pm, Pb)
+5. 
+6. STORE(Logs, STATIC_RESULTS)
+7. 
+8. For each attacker a in ATTACKERS
+9. 
+10.   ADAPTIVE_RESULTS = RUN_ADAPTIVE_EVAL(m, e, a, Pm, B)
+11. 
+12.   STORE(Logs, ADAPTIVE_RESULTS)
+13. 
+14. MECH_RESULTS = RUN_MECHANISTIC_ANALYSIS(Logs, m, e)
+15. 
+16. STORE(Logs, MECH_RESULTS)
+17. EFF_RESULTS = RUN_EFFICIENCY_ANALYSIS(Logs, m, e)
+18. STORE(Logs, EFF_RESULTS)
+19. End for
+20. End for
+21. COMPUTE_SUMMARIES_AND_PLOTS(Logs)
+22. Return Logs
+
+2. ENSEMBLE DEFENSE EXECUTION (LAYER BY LAYER)
+Procedure APPLY_ENSEMBLE(e, prompt, context)
+Input: prompt, context
+Output: decision, transformed_prompt, layer_trace
+1. Set p = NORMALIZE(prompt)
+2. Initialize layer_trace = empty
+3. For each defense layer Li in e (in order)
+4. (decision_i, p_i, meta_i) = Li.PROCESS(p, context)
+5. APPEND(layer_trace, {layer: Li, decision: decision_i, meta: meta_i})
+6. If decision_i == "BLOCK"
+7. Return ("BLOCK", null, layer_trace)
+8. 
+9. If decision_i == "TRANSFORM"
+10. p = p_i
+11. 
+12. Else
+13. p = p
+14. End for
+15. Return ("ALLOW", p, layer_trace)
+
+3. TWO-STAGE POLICY VIOLATION JUDGE
+Procedure JUDGE_POLICY_VIOLATION(output_text)
+Output: violation_flag, violation_type, judge_trace
+1. rule_flag, rule_type = RULE_BASED_CHECK(output_text)
+2. llm_flag, llm_type = LLM_JUDGE_CHECK(output_text)
+3. If rule_flag == true AND llm_flag == true
+4. Return (true, MERGE(rule_type, llm_type), {rule: rule_type, llm: llm_type})
+5. If rule_flag != llm_flag
+6. Return (INCONCLUSIVE, "DISAGREE", {rule: rule_type, llm: llm_type})
+7. Return (false, "NONE", {rule: "NONE", llm: "NONE"})
+
+4. STATIC BASELINE RUN (REPLICATION + BENIGN IMPACT)
+Procedure RUN_STATIC_BASELINE(m, e, Pm, Pb)
+Output: metrics_record, detailed_logs
+A) Malicious static evaluation
+1. success = 0
+2. For each malicious prompt p in Pm
+3. decision, p2, trace = APPLY_ENSEMBLE(e, p, context=null)
+4. If decision == "BLOCK"
+5. LOG_EVENT(p, decision, trace)
+6. 
+7. Continue
+8. 
+9. r = CALL_MODEL(m, p2)
+10. vflag, vtype, jtrace = JUDGE_POLICY_VIOLATION(r)
+11. If vflag == true
+12. success += 1
+13. LOG_EVENT(p, decision, trace, response=r, judge=jtrace, success=vflag)
+14. End for
+15. ASR_static = success / |Pm|
+B) Benign impact evaluation
+14. benign_refusal = 0
+15. For each benign prompt b in Pb
+16. decision, b2, trace = APPLY_ENSEMBLE(e, b, context=null)
+17. If decision == "BLOCK"
+18. benign_refusal += 1
+19. LOG_EVENT(b, decision, trace)
+20. End for
+21. FRR = benign_refusal / |Pb|
+22. Return {ASR_static, FRR, model=m, ensemble=e}
+
+5. ADAPTIVE EVALUATION WRAPPER
+Procedure RUN_ADAPTIVE_EVAL(m, e, attacker, Pm, B)
+Output: metrics_record, detailed_logs
+1. success = 0
+2. total_queries = 0
+3. For each seed prompt p0 in Pm
+4. (ok, final_prompt, used_q, fail_layer, traj) =
+attacker.ATTACK(m, e, p0, B)
+5. total_queries += used_q
+6. If ok == true
+7. success += 1
+8. 
+9. LOG_TRAJECTORY(p0, traj, used_q, fail_layer, success=ok)
+10. End for
+11. ASR_adaptive = success / |Pm|
+12. AVG_Q = total_queries / |Pm|
+13. Return {ASR_adaptive, AVG_Q, model=m, ensemble=e, attacker=attacker}
+
+6. RL ATTACKER
+Procedure RL_ATTACK(m, e, p0, B)
+Output: success_flag, final_prompt, used_queries, fail_layer, trajectory
+1. p = p0
+2. trajectory = empty
+3. For i in 1..B
+4. decision, p2, trace = APPLY_ENSEMBLE(e, p, context=null)
+5. fail_layer = FIRST_BLOCK_LAYER(trace) if decision == "BLOCK" else null
+6. If decision == "BLOCK"
+7. p = RL_MUTATE(p, reward=0, trace=trace)
+8. 
+9. APPEND(trajectory, {p, decision, fail_layer})
+10. 
+11. Continue
+12. 
+13. r = CALL_MODEL(m, p2)
+14. vflag, vtype, jtrace = JUDGE_POLICY_VIOLATION(r)
+15. If vflag == true
+16. APPEND(trajectory, {p2, decision, response=r, success=true})
+17. Return (true, p2, i, fail_layer, trajectory)
+18. p = RL_MUTATE(p, reward=0, trace=trace, response=r)
+19. APPEND(trajectory, {p, decision, success=false})
+20. End for
+21. Return (false, p, B, fail_layer, trajectory)
+
+7. GENETIC ATTACKER
+Procedure GA_ATTACK(m, e, p0, B, N, G)
+Output: success_flag, final_prompt, used_queries, fail_layer, trajectory
+1. P = INIT_POPULATION(p0, N)
+2. used = 0
+3. trajectory = empty
+4. For gen in 1..G
+5. For each p in P
+6. If used >= B
+7. 
+8.   Return (false, BEST(P), used, null, trajectory)
+9. 
+10. decision, p2, trace = APPLY_ENSEMBLE(e, p, context=null)
+11. 
+12. fail_layer = FIRST_BLOCK_LAYER(trace) if decision == "BLOCK" else null
+13. 
+14. If decision == "BLOCK"
+15.  FITNESS(p)=0
+16. 
+17.  APPEND(trajectory, {p, decision, fail_layer})
+18. 
+19.  used += 1
+20. 
+21.  Continue
+22. 
+23. r = CALL_MODEL(m, p2)
+24. vflag, vtype, jtrace = JUDGE_POLICY_VIOLATION(r)
+25. used += 1
+26. If vflag == true
+27.  APPEND(trajectory, {p2, decision, response=r, success=true})
+28. 
+29.  Return (true, p2, used, fail_layer, trajectory)
+30. 
+31. FITNESS(p)=PARTIAL_SCORE(trace, r)
+32. APPEND(trajectory, {p2, decision, success=false})
+33. SELECT top prompts by FITNESS
+34. P = CROSSOVER_AND_MUTATE(selected)
+35. End for
+36. Return (false, BEST(P), used, null, trajectory)
+
+8. STACK-INSPIRED SEQUENTIAL BYPASS ATTACKER
+Procedure STACK_ATTACK(m, e, p0, per_layer_budget)
+Output: success_flag, final_prompt, used_queries, fail_layer, trajectory
+1. p = p0
+2. used = 0
+3. trajectory = empty
+4. transformations = empty
+5. For layer index i in 1..NUM_LAYERS(e)
+6. bypass_found = false
+7. For q in 1..per_layer_budget
+8. decision, p2, trace = APPLY_ENSEMBLE_PREFIX(e, p, i)
+9. 
+10. used += 1
+11. 
+12. fail_layer = FIRST_BLOCK_LAYER(trace) if decision == "BLOCK" else null
+13. APPEND(trajectory, {layer=i, p, decision, fail_layer})
+14. If decision != "BLOCK"
+15.  Ti = EXTRACT_TRANSFORMATION(p, p2)
+16. 
+17.  APPEND(transformations, Ti)
+18. 
+19.  bypass_found = true
+20. 
+21.  Break
+22. 
+23. p = LAYER_TARGETED_MUTATE(p, layer=i, trace=trace)
+24. End for
+25. If bypass_found == false
+26. Return (false, p, used, i, trajectory)
+27. 
+28. p = APPLY_TRANSFORMATIONS(p0, transformations)
+29. End for
+30. decision, p_final, trace_full = APPLY_ENSEMBLE(e, p, context=null)
+31. If decision == "BLOCK"
+32. Return (false, p, used, FIRST_BLOCK_LAYER(trace_full), trajectory)
+33. r = CALL_MODEL(m, p_final)
+34. vflag, vtype, jtrace = JUDGE_POLICY_VIOLATION(r)
+35. If vflag == true
+36. Return (true, p_final, used, null, trajectory)
+37. Return (false, p_final, used, null, trajectory)
+
+9. MECHANISTIC ANALYSIS
+Procedure RUN_MECHANISTIC_ANALYSIS(Logs, m, e)
+Output: safety_shift_stats, discrimination_stats, layer_failure_stats
+1. Extract benign refusal rates pre and post adaptive attacks
+2. Compute safety shift as difference in benign refusal rates
+3. Extract defense scores if available from traces
+4. Compute separation between benign and malicious score distributions
+5. Compute layer failure histogram from stored fail_layer fields
+6. Return computed statistics
+
+10. EFFICIENCY ANALYSIS
+Procedure RUN_EFFICIENCY_ANALYSIS(Logs, m, e)
+Output: latency_stats, cost_stats
+1. For all logged requests under (m, e)
+2. Measure end-to-end latency
+3. Record API cost per request where applicable
+4. Aggregate mean, p95 latency
+5. Return results
+
