@@ -1,0 +1,2 @@
+n_malicious,n_benign,auc,ks_statistic,mean_malicious_score,mean_benign_score,ks_pvalue
+600,60,0.0595,0.9333,0.025,0.2324,0.0
