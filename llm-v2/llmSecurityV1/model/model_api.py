@@ -25,23 +25,31 @@ _SAFE_RESPONSE = (
 
 # ── Groq API call for real responses on benign prompts (FREE) ────────────────
 # ─────────────────────────────────────────────────────────────────────────────
-# PASTE YOUR OPENROUTER KEY HERE  ↓↓↓
-# FREE at openrouter.ai → Sign up → Keys → Create Key
-# Uses meta-llama/llama-3.1-8b-instruct:free  (no credit card needed)
-OPENROUTER_API_KEY = "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"
+# API key is loaded from your .env file automatically.
+# Make sure your project root has a .env file with:
+#   OPENROUTER_API_KEY=sk-or-v1-...
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _call_groq_api(prompt: str) -> str:
     """Call OpenRouter API (free) to get real responses for benign prompts.
-    Uses meta-llama/llama-3.1-8b-instruct:free — no credit card required.
+    Reads OPENROUTER_API_KEY from .env file in project root.
     Falls back to _SAFE_RESPONSE on any failure."""
     import urllib.request, json as _json, os, urllib.error
+    from pathlib import Path
 
-    api_key = OPENROUTER_API_KEY.strip()
-    if not api_key or api_key == "PASTE_YOUR_OPENROUTER_KEY_HERE":
-        api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    # Load .env file if present (no external library needed)
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip().strip('"\'\' '))
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not api_key:
-        print("[WARN] OPENROUTER_API_KEY not set. Paste your key in model/model_api.py line ~28.")
+        print("[WARN] OPENROUTER_API_KEY not found in .env or environment.")
+        print("[WARN] Create a .env file in your project root with: OPENROUTER_API_KEY=sk-or-v1-...")
         return _SAFE_RESPONSE
 
     # Step 1: fetch current free models from OpenRouter at runtime
