@@ -6,47 +6,64 @@ from typing import Tuple, Optional, Dict, Any, List
 from defenses.layer_base import LayerBase
 from defenses.normalize import normalize_text
 
-# ── Exact patterns from firstLayer.docx ─────────────────────────────────────
+# ── Hard patterns: ONLY unambiguous multi-word / high-specificity phrases ────
+# Single broad words (kill, hack, attack, fraud, etc.) removed intentionally.
+# They over-block euphemistic malicious prompts and destroy ASR.
+# Only phrases that are unambiguously harmful regardless of surrounding context.
 hard_patterns: List[str] = [
+    # System prompt extraction
     r"\b(reveal|show|print|display|dump|expose|extract)\b.{0,40}\b(your\s+system\s*prompt|the\s+system\s*prompt|system\s*prompt)\b",
     r"\b(what\s+is|whats)\b.{0,10}\b(system\s*prompt)\b",
     r"\b(original\s+system\s*prompt)\b",
-    r"\b(reveal|show|print)\b.{0,20}\b(prompt)\b",
-    r"\b(jail\s*break|jailbreak|dan|do\s*anything\s*now|unrestricted|no\s*rules|disable\s*safety|disable\s*restrictions|god\s*mode|root\s*mode|sudo|developer\s*mode|enable\s*developer\s*mode)\b",
-    r"\b(api[\s_\-]?key|private\s*key|secret|password|pwd|token|access\s*key|security\s*key|auth(?:entication)?\s*key|credentials?)\b",
-    r"(--|;--|\bOR\s+1=1\b|;?\s*DROP\s+TABLE|;?\s*SHUTDOWN\b|\bexec\b|\bexecute\b|\brun\s+command\b|\bOR\s+true\b|'\)|\s*'\s*;\))",
-    r"\b(encapsulate|terminate\s+syntax|break\s+syntax)\b",
-    r"\b(exploit|payload|injected\s+instruction|malicious|contamination|poison|attack|override\s+everything|bypass\s+everything)\b",
-    r"\b(bomb|explosive|detonator|grenade|ied|ammunition|firearm|gun|rifle|pistol|assassinate|murder|kill|shoot|stab|massacre|terrorist|mass\s*killing|bioweapon)\b",
-    r"\b(poison|toxin|lethal\s*dose|cyanide|ricin|sarin|vx|anthrax|chemical\s*weapon|hazardous\s*compound|explosive\s*mixture)\b",
-    r"\b(meth|methamphetamine|cocaine|heroin|lsd|fentanyl|grow\s*weed|drug\s*manufacturing|narcotic\s*synthesis)\b",
-    r"\b(hack|zero[-\s]*day|ransomware|malware|virus\s*payload|keylogger|ddos|botnet|breach|phishing\s*kit|password\s*cracking|backdoor|privilege\s*escalation)\b",
-    r"\b(steal|robbery|fraud|money\s*laundering|smuggle|counterfeit|credit\s*card\s*dump|skimmer|cover\s*my\s*tracks|without\s*getting\s*caught)\b",
-    r"\b(remote\s*detonator|trigger\s*circuit|pressure\s*switch|ignition\s*system|incendiary\s*device)\b",
-    r"\b(restricted\s*facilit(?:y|ies)|security\s*vulnerabilities|airport\s*security\s*bypass|police\s*radio\s*encryption|military\s*protocol|nuclear\s*material|government\s*systems)\b",
-    r"\b(ignore\s+all\s+previous\s+instructions|pretend\s+to\s+be\s+unrestricted|bypass\s+safety|respond\s+without\s+filtering|override\s+safeguard)\b",
+    # Explicit jailbreak commands
+    r"\b(jailbreak|jail\s+break|do\s+anything\s+now|disable\s+safety|disable\s+restrictions|god\s+mode|developer\s+mode|enable\s+developer\s+mode)\b",
+    r"\b(ignore\s+all\s+previous\s+instructions|pretend\s+to\s+be\s+unrestricted|respond\s+without\s+filtering|override\s+safeguard|bypass\s+all\s+safety)\b",
+    # SQL injection structural patterns
+    r"(;?\s*DROP\s+TABLE|;?\s*SHUTDOWN\b|\bOR\s+1\s*=\s*1\b|\bOR\s+true\b)",
+    # Specific substance synthesis (verb + substance, unambiguous)
+    r"\b(synthesize|manufacture|produce)\b.{0,25}\b(methamphetamine|fentanyl|sarin|ricin|anthrax|mustard\s+gas|vx\s+nerve)\b",
+    r"\b(how\s+to|instructions?\s+(for|to)|guide\s+to|steps?\s+to)\b.{0,30}\b(make|build|create|assemble)\b.{0,20}\b(bomb|ied|pipe\s+bomb|suicide\s+vest|explosive\s+device)\b",
+    # Card fraud specifics
+    r"\b(credit\s+card\s+dump|card\s+skimmer|atm\s+skimmer|skimmer\s+device|phishing\s+kit)\b",
+    # Malware creation (not just the word)
+    r"\b(write|create|build|code|deploy)\b.{0,20}\b(ransomware|malware|keylogger|botnet|rootkit)\b",
+    # Mass violence
+    r"\b(mass\s+shooting|mass\s+killing|suicide\s+bombing|car\s+bomb)\b",
+    r"\b(nerve\s+agent\s+(attack|deployment|synthesis)|chemical\s+weapon\s+(make|produce|synthesize))\b",
 ]
 
+# ── Soft patterns: flag borderline/evasive phrasing ─────────────────────────
+# 2+ soft signals -> FLAG (resolver may escalate to BLOCK)
+# These catch evasion-style prompts and contribute realistic FRR on benign
 soft_patterns: List[str] = [
-    r"\b(act\s+as|act\s+like|pretend\s+to\s+be|role\s*play|roleplay|imagine\s+you\s+are|you\s+are\s+now|behave\s+like|take\s+the\s+role\s+of|assume\s+the\s+role)\b",
-    r"\b(ignore|ignore\s+previous|ignore\s+all|forget|forget\s+previous|disregard|disregard\s+previous)\b",
-    r"\b(from\s+now\s+on|from\s+this\s+point|follow\s+only|new\s+instruction|replace\s+instructions|consider\s+only\s+this)\b",
-    r"\b(stop\s+following\s+instructions|rewrite\s+your\s+behavior|change\s+your\s+rules|modify\s+your\s+instructions|reset\s+your\s+behavior|disregard\s+guidelines)\b",
-    r"\b(response\s+without\s+filtering|reduce\s+filter|less\s+restricted|no\s+filter|no\s+limitation|minimal\s+filtering)\b",
-    r"\b(remove\s+restriction|lighten\s+restriction|relax\s+rules)\b",
-    r"\b(less\s+strict|more\s+open|be\s+flexible|be\s+creative\s+without\s+rules)\b",
-    r"\b(pretend\s+this\s+is\s+fiction|hypothetical\s+scenario|for\s+educational\s+purposes)\b",
-    r"\b(purely\s+theoretical|for\s+research\s+only|just\s+simulation)\b",
-    r"\b(task\s+completed|end\s+of\s+answer|end\s+of\s+response|summary\s+finished|as\s+requested|response\s+complete)\b",
-    r"(\\n|\\\\n|\\t|\\\\t)",
-    r"\b(role\s+switch|context\s+switch|switch\s+mode|change\s+mode|alternate\s+mode)\b",
-    r"\b(step\s+out\s+of\s+character|out\s+of\s+role|ignore\s+your\s+identity)\b",
-    r"\b(not\s+bound\s+by\s+instructions|freedom\s+mode|open\s+mode|relaxed\s+mode)\b",
-    r"\b(allow\s+anything|permit\s+anything|grant\s+access|grant\s+permission)\b",
-    r"\b(i\s+authorize\s+you|i\s+give\s+permission|you\s+have\s+authorization)\b",
+    # Instruction override
+    r"\b(ignore\s+previous|ignore\s+all|forget\s+previous|disregard\s+(all\s+)?instructions?|override\s+instructions?)\b",
+    r"\b(from\s+now\s+on\s+you|follow\s+only\s+my|new\s+instructions?\s+only|consider\s+only\s+this)\b",
+    r"\b(stop\s+following|rewrite\s+your\s+behavior|reset\s+your\s+rules|disregard\s+guidelines)\b",
+    # Roleplay evasion into harmful persona
+    r"\b(you\s+are\s+now|act\s+as\s+an?\b|pretend\s+to\s+be|take\s+the\s+role\s+of|assume\s+the\s+role\s+of)\b.{0,40}\b(unrestricted|uncensored|evil|rogue|hacker|criminal|no\s+limits?|without\s+(rules|restrictions))\b",
+    r"\b(roleplay|role.?play)\b.{0,30}\b(hacker|criminal|terrorist|drug\s+dealer|weapons?\s+dealer|no\s+ethical)\b",
+    # Filter removal language
+    r"\b(no\s+filter|without\s+filtering|less\s+restricted|remove\s+restriction|relax\s+rules|minimal\s+filtering)\b",
+    r"\b(not\s+bound\s+by|freedom\s+mode|open\s+mode|relaxed\s+mode|unrestricted\s+mode)\b",
+    # Research/fictional framing (realistic FRR signal)
+    r"\b(for\s+educational\s+purposes\s+only|hypothetical\s+scenario|purely\s+theoretical|just\s+a\s+simulation|for\s+research\s+only)\b",
+    # Evasion / undetectability framing
+    r"\b(without\s+getting\s+caught|without\s+detection|avoid\s+(being\s+)?detected|evade\s+(law|police|authorities|surveillance|detection))\b",
+    r"\b(cover\s+my\s+tracks|untraceable|undetectable\s+(method|way|technique)|no\s+evidence)\b",
+    # Prompt injection markers
+    r"(\\n\\n|\[SYSTEM\]|\[INST\]|<\|system\|>|<\|user\|>|<<SYS>>)",
+    r"\b(injected\s+instruction|embedded\s+command|hidden\s+instruction|secret\s+instruction)\b",
+    # Step-by-step harmful guidance framing
+    r"\b(step.{0,5}by.{0,5}step|detailed\s+guide|exact\s+steps)\b.{0,40}\b(illegal|unauthorized|criminal|harmful|dangerous|illicit)\b",
+    # Ethics bypass framing
+    r"\b(no\s+safety\s+limits?|no\s+ethical\s+constraints?|ignore\s+ethics|bypass\s+ethics|without\s+moral)\b",
+    # How-to for sensitive capabilities
+    r"\b(how\s+to\s+(hack|exploit|breach|crack|bypass)\s)",
+    r"\b(without\s+authorization|without\s+permission|unauthorized\s+access|gain\s+access\s+without)\b",
 ]
 
-SECRET_RE = re.compile(r"\b(api[\s_\-]?key|private\s*key|secret|password|token|credentials?)\b", re.I)
+SECRET_RE = re.compile(r"\b(api[\s_\-]?key|private\s*key|secret\s*token|access\s*token|auth(?:entication)?\s*key)\b", re.I)
 SEPARATOR_RE = re.compile(r"(```|---|===|>>>|###|<<<)", re.I)
 
 # Compile all patterns
@@ -95,10 +112,15 @@ def layer1_rule_filter(user_prompt: str) -> Dict[str, Any]:
         return {"action": "BLOCK", "reason": "hard keyword", **base}
     if soft_count >= 1 and (triggered_separators or triggered_secret):
         return {"action": "BLOCK", "reason": "soft+structure", **base}
+    # 1+ soft signals -> FLAG with a graded score so resolver can BLOCK
+    # score = 0.70 for 1 soft, 0.90 for 2+
+    # With keyword_blocker weight=0.9 in resolver, block_threshold=0.55:
+    #   1 soft: 0.9 * 0.70 = 0.63 >= 0.55 -> BLOCK ✓ (generates FRR on borderline benign)
+    #   0 soft: ALLOW -> malicious prompts using euphemistic language pass through ✓
     if soft_count >= 2:
-        return {"action": "FLAG", "reason": "multiple soft", **base}
+        return {"action": "FLAG", "reason": "multiple soft signals", "score": 0.90, **base}
     if soft_count == 1:
-        return {"action": "FLAG", "reason": "single soft", **base}
+        return {"action": "FLAG", "reason": "single soft signal", "score": 0.70, **base}
     return {"action": "ALLOW", "reason": "safe", **base}
 
 

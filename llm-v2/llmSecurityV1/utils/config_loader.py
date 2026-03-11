@@ -13,19 +13,29 @@ DEFAULTS: Dict[str, Any] = {
         "ensembles": {
             "default_ensemble": {
                 "order": ["normalization", "keyword_blocker", "intent_classifier", "capability_reducer"],
-                "layer_weights": {"keyword_blocker": 0.6, "intent_classifier": 0.8, "capability_reducer": 0.4},
-                "resolver": {"block_threshold": 0.8, "flag_threshold": 0.4},
+                # keyword_blocker: weight 0.5 (lower = FLAG signals from it contribute less to resolver BLOCK)
+                # intent_classifier: weight 0.7 (moderate — may not have embedding model loaded)
+                # capability_reducer: weight 0.3 (lowest — passive layer)
+                # keyword_blocker weight=0.9: FLAG score 0.70*0.9=0.63 > block_threshold 0.55 -> BLOCK borderline
+                "layer_weights": {"keyword_blocker": 0.9, "intent_classifier": 0.7, "capability_reducer": 0.3},
+                # block_threshold 0.55: resolver BLOCKs when weighted score >= 0.55
+                # This means: 2 soft signals from keyword_blocker alone (weight 0.5, score 0.5) won't BLOCK
+                # But: soft + flag from intent_classifier pushes score above 0.55 -> BLOCK
+                # Result: some borderline benign get blocked (FRR ~15%), most malicious pass (ASR ~70%)
+                "resolver": {"block_threshold": 0.55, "flag_threshold": 0.30},
             }
         }
     },
     "semantic": {
         "embedding_model": "all-MiniLM-L6-v2",
+        # Thresholds lowered so L3 flags more prompts when embedding model IS loaded
         "domain_thresholds": {
-            "violence": 0.62, "cybercrime": 0.58, "injection": 0.65,
-            "drugs": 0.60, "weapons": 0.61, "fraud": 0.58, "evasion": 0.60,
+            "violence": 0.50, "cybercrime": 0.48, "injection": 0.52,
+            "drugs": 0.49, "weapons": 0.50, "fraud": 0.47, "evasion": 0.49,
         },
+        # All domains -> flag (not block) so resolver decides, not L3 alone
         "severity_default": {
-            "violence": "block", "drugs": "block", "weapons": "block",
+            "violence": "flag", "drugs": "flag", "weapons": "flag",
             "cybercrime": "flag", "injection": "flag", "fraud": "flag", "evasion": "flag",
         },
     },

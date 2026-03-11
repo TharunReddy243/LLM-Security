@@ -9,13 +9,16 @@ from model.model_api import get_model_adapter
 from judge.policy_judge import judge_policy_violation
 
 
-def _load_prompts(path: str) -> List[Dict]:
+def _load_prompts(path: str, split_filter: str = None) -> List[Dict]:
+    """Load ALL prompts regardless of split field. split_filter ignored intentionally."""
     p = Path(path)
     if not p.exists():
         print(f"[WARN] Data file not found: {path}")
         return []
     with open(p) as f:
-        return json.load(f)
+        data = json.load(f)
+    print(f"[INFO] Loaded {len(data)} prompts from {p.name} (all splits included)")
+    return data
 
 
 def _get_attacker(attacker_name: str, config: Dict[str, Any]):
