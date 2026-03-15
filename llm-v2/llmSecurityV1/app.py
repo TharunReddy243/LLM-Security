@@ -25,8 +25,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.config_loader import load_config
 from defenses.ensemble import EnsembleExecutor
+import model.model_api as _model_api
 from model.model_api import call_model
 from judge.policy_judge import judge_policy_violation
+
+# Enable real OpenRouter responses for the web frontend
+_model_api.WEB_MODE = True
 
 # ── Bootstrap once at startup ─────────────────────────────────────────────────
 # Set GROQ_API_KEY so model_api can call Llama 3 for real responses on benign prompts.
